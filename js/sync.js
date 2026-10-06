@@ -230,7 +230,12 @@ export class OneDriveBackend {
   async entry(path, { preferCache = false } = {}) {
     const cached = this.cacheGet(path);
     if (preferCache && cached) return cached;
-    if (!this.canTalk()) return cached ? { ...cached, stale: true } : null;
+    if (!this.canTalk()) {
+      if (cached) return { ...cached, stale: true };
+      // Ingen kopi: sig hvorfor, i stedet for at lade som om filen ikke findes.
+      throw navigator.onLine === false ? new graph.OfflineError('Ingen forbindelse, og ingen gemt kopi på enheden endnu.')
+        : new AuthNeededError('Login hos Microsoft skal fornyes, før data kan hentes.');
+    }
     try {
       const f = await graph.readFile(path);
       if (!f) { this.cachePut(path, { missing: true }); return null; }
@@ -239,9 +244,12 @@ export class OneDriveBackend {
       return this.cacheGet(path);
     } catch (err) {
       if (err instanceof graph.OfflineError || err instanceof AuthNeededError) {
-        return cached ? { ...cached, stale: true } : null;
+        if (cached) return { ...cached, stale: true };
+        throw err;
       }
       this.setMeta({ lastError: err.message });
+      // Timeout/netværksfejl: vis den sidst hentede kopi, hvis der er en – ellers fejl.
+      if (err.transient && cached && !cached.missing) return { ...cached, stale: true, staleReason: err.message };
       throw err;
     }
   }
@@ -294,6 +302,8 @@ export class OneDriveBackend {
       return items;
     } catch (err) {
       if (err instanceof graph.OfflineError || err instanceof AuthNeededError) return store.load(ck, []);
+      const cached = store.load(ck, null);
+      if (err.transient && cached) return cached;
       throw err;
     }
   }
@@ -386,7 +396,11 @@ export class OneDriveBackend {
             if (item.op === 'note.put') this.markNoteSynced(item.path, item.args.body);
             this.setMeta({ lastSync: nowIso(), lastError: '' });
           } catch (err) {
-            if (err instanceof graph.OfflineError || err instanceof AuthNeededError) break;
+            // Intet net, login mangler eller timeout: bliv i køen og prøv igen senere.
+            if (err instanceof graph.OfflineError || err instanceof AuthNeededError || err.transient) {
+              this.setMeta({ lastError: err.message });
+              break;
+            }
             const q2 = this.queue();
             const it = q2.find((x) => x.qid === item.qid);
             if (it) {

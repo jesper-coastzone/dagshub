@@ -169,44 +169,72 @@ export function renderHandlingerMd(h, refs = [], now = new Date()) {
 
 /**
  * Henter alt til "I dag" fra OneDrive via sync (OneDriveBackend).
- * Mangler dagens forside, vises den nyeste forside fra de sidste 7 dage.
- * Valgfri fil hub-data.json (brief, recaps, documents …) lægges under.
+ *
+ * Hver del hentes for sig (Promise.allSettled), så én manglende eller fejlende
+ * fil aldrig stopper resten:
+ *  - Mangler dagens forside (404), vises den nyeste forside fra de sidste 7 dage
+ *    eller en tom forside-sektion – de åbne handlinger vises stadig.
+ *  - Mangler hub-data.json eller Dage/<i dag>/, er det ikke en fejl.
+ *  - Fejler et kald (timeout, netværk, HTTP-fejl), står det i `errors`
+ *    ({ part, message, call, name }) og vises som en tydelig fejl med detalje.
  */
 export async function loadOneDriveHub(sync, today = dateKey()) {
+  const errors = [];
+  const settle = async (part, p, fallback) => {
+    try { return await p; } catch (err) {
+      console.error(`[hub] ${part}:`, err);
+      errors.push({ part, message: err?.message || String(err), call: err?.call || '', name: err?.name || 'Error', status: err?.status || null });
+      return fallback;
+    }
+  };
   const [hEntry, root, refs, extra] = await Promise.all([
-    sync.backend.getEntry('handlinger.json'),
-    sync.list(''),
-    sync.list('Referater'),
-    sync.get('hub-data.json', null),
+    settle('Handlinger (handlinger.json)', sync.backend.getEntry('handlinger.json'), null),
+    settle('Mappen Sekretærassistent', sync.list(''), []),
+    settle('Referater', sync.list('Referater'), []),
+    settle('Brief (hub-data.json)', sync.get('hub-data.json', null), null),
   ]);
   let frontDate = today;
-  let fEntry = await sync.backend.getEntry(`Dage/${today}/forside.json`);
-  if (!fEntry.value) {
-    const days = (await sync.list('Dage')).filter((d) => d.isFolder && /^\d{4}-\d{2}-\d{2}$/.test(d.name)
+  let fEntry = await settle(`Forside (Dage/${today}/forside.json)`, sync.backend.getEntry(`Dage/${today}/forside.json`), null);
+  if (fEntry && !fEntry.value) {
+    const dage = await settle('Mappen Dage', sync.list('Dage'), []);
+    const days = (dage || []).filter((d) => d.isFolder && /^\d{4}-\d{2}-\d{2}$/.test(d.name)
       && d.name < today && d.name >= addDaysKey(today, -7)).map((d) => d.name).sort().reverse();
     for (const d of days) {
-      const e = await sync.backend.getEntry(`Dage/${d}/forside.json`);
+      const e = await settle(`Forside (Dage/${d}/forside.json)`, sync.backend.getEntry(`Dage/${d}/forside.json`), null);
+      if (!e) break; // fejl (fx timeout): prøv ikke flere dage
       if (e.value) { fEntry = e; frontDate = d; break; }
     }
   }
   const byName = Object.fromEntries((root || []).map((r) => [r.name, r]));
   const base = extra && typeof extra === 'object' ? extra : {};
-  const front = fEntry.value
-    ? buildFront(fEntry.value, '')
-    : { date: today, items: [], missing: `Ingen forside for ${today} i OneDrive endnu. Den bygges af morgenrutinen.` };
-  if (front && frontDate !== today) front.olderThanToday = true;
+  const frontErr = errors.find((e) => e.part.startsWith('Forside'));
+  let front;
+  if (fEntry?.value) {
+    front = buildFront(fEntry.value, '');
+    if (frontDate !== today) front.olderThanToday = true;
+  } else {
+    front = { date: today, items: [], missing: frontErr ? '' : `Ingen forside for ${today} i OneDrive endnu. Den bygges af morgenrutinen.`, error: frontErr || null };
+  }
+  const hErr = errors.find((e) => e.part.startsWith('Handlinger'));
+  const actions = hEntry?.value
+    ? buildActions(hEntry.value, today, refs, byName['Handlinger.md']?.webUrl || '')
+    : { open: [], closedRecent: [], counts: { open: 0, missing: 0, closed7d: 0 }, error: hErr || null,
+      note: hErr ? '' : 'handlinger.json blev ikke fundet i OneDrive › Sekretærassistent.' };
   return {
     ...base,
     example: false,
     source: 'onedrive',
     briefDate: base.briefDate || today,
-    generatedAt: base.generatedAt || hEntry.value?.updatedAt,
+    generatedAt: base.generatedAt || hEntry?.value?.updatedAt,
     front,
-    actions: buildActions(hEntry.value, today, refs, byName['Handlinger.md']?.webUrl || ''),
+    actions,
     referater: recentReferater(refs, today),
     referaterUrl: byName.Referater?.webUrl || '',
     folderUrl: '',
-    stale: Boolean(hEntry.stale || fEntry.stale),
-    fetchedAt: hEntry.fetchedAt,
+    stale: Boolean(hEntry?.stale || fEntry?.stale),
+    fetchedAt: hEntry?.fetchedAt,
+    errors,
+    // Intet brugbart at vise: handlingerne kunne hverken hentes eller findes i cachen.
+    failed: Boolean(hErr && !hEntry?.value),
   };
 }

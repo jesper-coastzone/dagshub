@@ -75,10 +75,16 @@ async function loadFront(date) {
 
 async function renderList(root, date) {
   const sync = getSync();
-  const front = await loadFront(date);
+  // Fejl (timeout, login, net) må ikke hænge eller tømme siden: vis besked og en tom liste.
+  let loadErr = null;
+  let front = null;
+  try { front = await loadFront(date); } catch (err) { loadErr = err; }
   const meetings = (front?.items || []).filter((it) => it.kind === 'møde')
     .sort((a, b) => String(a.start).localeCompare(String(b.start)));
-  const existing = sync.shared ? (await sync.list(`Dage/${date}/noter`)).filter((f) => !f.isFolder) : [];
+  let existing = [];
+  if (sync.shared && !loadErr) {
+    try { existing = (await sync.list(`Dage/${date}/noter`)).filter((f) => !f.isFolder); } catch (err) { loadErr = err; }
+  }
   const names = new Set(existing.map((f) => f.name));
   const today = dateKey();
   const days = [addDaysKey(today, -1), today, addDaysKey(today, 1)];
@@ -102,6 +108,7 @@ async function renderList(root, date) {
       </div>
     </section>
     ${sync.shared ? '' : `<p class="notice">${auth.getStatus() === 'off' ? 'Login er ikke sat op endnu, så noter gemmes kun på denne enhed.' : 'Du er ikke logget ind, så noter gemmes kun på denne enhed. Log ind med Microsoft for at gemme dem i OneDrive.'}</p>`}
+    ${loadErr ? `<p class="notice section-error">Forsiden kunne ikke hentes fra OneDrive: ${esc(loadErr.message)} <a href="#noter?d=${encodeURIComponent(date)}&r=${Date.now()}">Prøv igen</a></p>` : ''}
     <nav class="day-switch" aria-label="Vælg dag">
       ${days.map((d) => `<a class="btn btn-lg ${d === date ? 'btn-primary' : 'btn-ghost'}" href="#noter?d=${d}" ${d === date ? 'aria-current="page"' : ''}>${esc(relativeDayLabel(d, today))}</a>`).join('')}
     </nav>

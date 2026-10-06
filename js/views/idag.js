@@ -22,7 +22,9 @@ import * as api from '../api.js';
 import {
   esc, $, toast, formatLongDate, formatTime, formatShortDate, fromDateKey,
 } from '../utils.js';
-import { sourceTag, empty, ICONS } from '../components.js';
+import { sourceTag, empty, ICONS, errorPanel, explainError } from '../components.js';
+import { withTimeout } from '../timeout.js';
+import { techDetail, resetAppCache } from '../diagnostics.js';
 import { getSync } from '../sync.js';
 import { loadOneDriveHub } from '../hub-model.js';
 import { renderMarkdown } from '../markdown.js';
@@ -268,7 +270,8 @@ function frontSection(front, done, od = false) {
       <p class="hint">${front.olderThanToday ? '<strong>Dagens forside er ikke bygget endnu – viser den seneste.</strong> ' : ''}Det, der er relevant i dag. Punkterne lukkes, når du har bekræftet, at noterne er skrevet. Resten ruller videre.</p>
       ${items.length
         ? `<div class="front-grid">${items.map((it) => frontItem(front, it, done, od)).join('')}</div>`
-        : (text(front.missing) ? gap(front.missing) : empty('Ingen punkter på forsiden i dag.'))}
+        : front.error ? `<p class="section-error">Forsiden kunne ikke hentes: ${esc(text(front.error.message))}</p>`
+          : (text(front.missing) ? gap(front.missing) : empty('Ingen punkter på forsiden i dag.'))}
       ${list(front.skipped).length ? `<p class="hint">Ikke med: ${esc(list(front.skipped).map((s) => `${text(s.title)} (${text(s.reason)})`).join('; '))}.</p>` : ''}
     </section>`;
 }
@@ -334,6 +337,8 @@ function actionsSection(actions, done, od = false, editing = '') {
         <h2>Åbne handlinger <span class="count">${open.length}</span></h2>
         ${safeUrl(actions.listUrl) ? `<a class="btn btn-ghost btn-small" href="${esc(safeUrl(actions.listUrl))}" target="_blank" rel="noopener noreferrer">Handlinger.md ↗</a>` : ''}
       </div>
+      ${actions.error ? `<p class="section-error">Handlingerne kunne ikke hentes: ${esc(text(actions.error.message))}</p>` : ''}
+      ${text(actions.note) ? gap(actions.note) : ''}
       <p class="hint">${od ? 'Tryk ✓, når en handling er klaret – det gemmes i den fælles liste i OneDrive. Du kan også sige „A er klaret“ til Grok Bot.' : 'Luk med ét ord: sig fx „A er klaret“ eller „A og C er klaret“ til Grok Bot.'}${nMissing ? ` ${nMissing} mangler ansvarlig eller frist.` : ''}</p>
       ${groups.map(([kind, label]) => {
         const rows = open.filter((a) => (a?.kind === 'intern' ? 'intern' : 'kunde') === kind);
@@ -416,9 +421,31 @@ function referaterSection(data) {
     </section>`;
 }
 
+/** Fejl ved indlæsning fra OneDrive: tydelig besked, "Prøv igen" og teknisk detalje. */
+function loadErrorPanel(data) {
+  const errs = list(data.errors);
+  if (!errs.length) return '';
+  const first = errs[0];
+  const authIssue = errs.some((e) => e.name === 'AuthNeededError' || e.status === 401);
+  return errorPanel({
+    title: data.failed ? 'Dine data kunne ikke hentes fra OneDrive' : 'Noget kunne ikke hentes fra OneDrive',
+    lead: `${explainError(first)}${data.failed ? '' : ' Det, der kunne hentes, vises nedenfor.'}`,
+    detail: techDetail(errs),
+    retry: true,
+    reauth: authIssue,
+    reset: true,
+  });
+}
+
 /** Login-kort øverst, når appen ikke er logget ind på OneDrive. */
 function loginCard(status) {
   if (status === 'signed-in') return '';
+  if (status === 'redirecting') {
+    return `
+      <section class="card login-card">
+        <div><h2>Logger ind igen hos Microsoft …</h2><p>Siden skifter til Microsoft og kommer tilbage hertil.</p></div>
+      </section>`;
+  }
   if (status === 'off') {
     return `
       <section class="card login-card is-off">
@@ -433,9 +460,11 @@ function loginCard(status) {
     <section class="card login-card">
       <div>
         <h2>${status === 'needs-login' ? 'Log ind igen' : 'Log ind for at se dine data'}</h2>
+        ${auth.getLastError() ? `<p class="section-error">Seneste login-forsøg fejlede: ${esc(auth.getLastError())}</p>
+          <details class="tech-detail"><summary>Teknisk detalje</summary><pre>${esc(techDetail([]))}</pre></details>` : ''}
         <p>Med din Microsoft-konto henter Dagshub forsiden, handlingerne og referaterne direkte fra OneDrive › Sekretærassistent, og dine ændringer gemmes samme sted – på computer, telefon og tablet.</p>
       </div>
-      <button class="btn btn-ms btn-lg" data-login>${MS_LOGO}<span>Log ind med Microsoft</span></button>
+      <button class="btn btn-ms btn-lg" ${status === 'needs-login' ? 'data-reauth' : 'data-login'}>${MS_LOGO}<span>Log ind med Microsoft</span></button>
     </section>`;
 }
 
@@ -515,11 +544,19 @@ export async function render(root) {
   async function paint({ quiet = false } = {}) {
     if (od) {
       try {
-        data = await loadOneDriveHub(sync);
+        // Hvert kald har sin egen grænse på 15 s; hele indlæsningen højst 18 s.
+        data = await withTimeout(loadOneDriveHub(sync), 18000, 'indlæs "I dag" fra OneDrive');
       } catch (err) {
         console.error(err);
-        if (!quiet) toast(`Kunne ikke hente fra OneDrive: ${err.message}`);
-        data = { source: 'onedrive', front: { items: [], missing: err.message } };
+        data = {
+          source: 'onedrive', failed: true, front: null, actions: null,
+          errors: [{ part: 'Indlæsning', name: err?.name, message: err?.message || String(err), call: err?.call || '', status: err?.status }],
+        };
+      }
+      if (quiet && data.failed && root.querySelector('.front, .actions-card')) {
+        // Baggrundsopdatering fejlede: behold det viste og giv besked i stedet for at tømme siden.
+        toast(`Kunne ikke opdatere fra OneDrive: ${list(data.errors)[0]?.message || ''}`, { timeout: 6000 });
+        return;
       }
       done = {};
     } else {
@@ -545,8 +582,9 @@ export async function render(root) {
       </section>
 
       ${loginCard(auth.getStatus())}
+      ${od ? loadErrorPanel(data) : ''}
 
-      ${Object.keys(data).length ? '' : `
+      ${Object.keys(data).length || od ? '' : `
         <div class="placeholder-box">
           <strong>Ingen data</strong>
           <p>data/hub-data.js blev ikke fundet eller satte ikke window.HUB_DATA.</p>
@@ -644,6 +682,17 @@ export async function render(root) {
 
   root.addEventListener('click', async (e) => {
     const t = e.target;
+    if (t.closest('[data-retry]')) {
+      const btn = t.closest('[data-retry]');
+      btn.disabled = true; btn.textContent = 'Henter …';
+      await paint();
+      return;
+    }
+    if (t.closest('[data-reauth]')) {
+      try { await auth.reauth(); } catch (err) { toast(err.message, { timeout: 6000 }); }
+      return;
+    }
+    if (t.closest('[data-reset-app]')) { await resetAppCache(); return; }
     if (t.closest('[data-login]')) {
       if (!auth.isConfigured()) {
         toast('Login er ikke sat op endnu: config.js mangler et Client ID fra app-registreringen i Microsoft Entra.', { timeout: 7000 });

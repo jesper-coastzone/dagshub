@@ -670,3 +670,13 @@ textarea { resize: vertical; line-height: 1.5; }
 @media (min-width: 1100px) {
   .app-nav a { padding: 0 .75rem; }
 }
+
+/* Fejl med "Prøv igen" og teknisk detalje (kan fotograferes og sendes) */
+.error-panel { border-width: 2px; margin-bottom: 1rem; }
+.error-panel h2 { color: var(--danger); margin-top: 0; }
+.error-actions { display: flex; flex-wrap: wrap; gap: .6rem; margin: .8rem 0; }
+.tech-detail { margin-top: .4rem; }
+.tech-detail summary { cursor: pointer; color: var(--muted); font-size: .9rem; padding: .3rem 0; }
+.tech-detail pre { white-space: pre-wrap; word-break: break-word; font-size: .78rem; line-height: 1.45;
+  background: var(--surface-2); border-radius: 8px; padding: .7rem; max-height: 50vh; overflow: auto; }
+.section-error { color: var(--danger); font-size: .92rem; }

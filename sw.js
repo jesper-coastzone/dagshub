@@ -17,7 +17,7 @@
  * En side med login-svar i URL'en (#code=…) caches ikke.
  */
 
-const CACHE_VERSION = 'dagshub-v3';
+const CACHE_VERSION = 'dagshub-v4';
 
 const APP_SHELL = [
   './',
@@ -31,6 +31,9 @@ const APP_SHELL = [
   './js/config.js',
   './js/auth.js',
   './js/auth-bridge.js',
+  './js/boot-guard.js',
+  './js/timeout.js',
+  './js/diagnostics.js',
   './js/graph.js',
   './js/hub-model.js',
   './js/markdown.js',
@@ -61,7 +64,8 @@ const APP_SHELL = [
 self.addEventListener('install', (event) => {
   event.waitUntil(
     caches.open(CACHE_VERSION)
-      .then((cache) => cache.addAll(APP_SHELL))
+      // cache: 'reload' = forbi browserens HTTP-cache, så en ny version aldrig blandes med gamle filer.
+      .then((cache) => cache.addAll(APP_SHELL.map((u) => new Request(u, { cache: 'reload' }))))
       .then(() => self.skipWaiting()),
   );
 });
@@ -107,7 +111,9 @@ self.addEventListener('fetch', (event) => {
   const cacheKey = url.origin + url.pathname;
 
   event.respondWith(
-    fetch(request)
+    // no-cache: spørg altid serveren (304 er billigt), så app.js/config.js aldrig er en gammel kopi.
+    // (En navigation-request må ikke få nye init-felter; den hentes som den er.)
+    (request.mode === 'navigate' ? fetch(request) : fetch(request, { cache: 'no-cache' }))
       .then((response) => {
         if (response.ok) {
           const copy = response.clone();

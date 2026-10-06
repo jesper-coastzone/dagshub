@@ -11,6 +11,9 @@
 const CLIENT_ID = 'd35aa775-9a11-4c81-8450-7e8dc84eb1af';
 
 /** Den offentlige adresse (GitHub Pages). Skal stå præcis sådan – med afsluttende "/" – som redirect-URI i Entra. */
+/** Vises i den tekniske detalje ved fejl. Hæv sammen med CACHE_VERSION i sw.js. */
+export const APP_VERSION = 'dagshub-v4 (2026-10-06)';
+
 export const PUBLIC_URL = 'https://jesper-coastzone.github.io/dagshub/';
 export const BASE_PATH = '/dagshub/';
 

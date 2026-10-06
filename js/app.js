@@ -29,6 +29,12 @@ import { $, $$, esc, toast } from './utils.js';
 import * as auth from './auth.js';
 import { useSync, getSync, OneDriveBackend, LocalBackend } from './sync.js';
 import { BASE_PATH } from './config.js';
+import { withTimeout } from './timeout.js';
+import { errorPanel, explainError } from './components.js';
+import { techDetail, resetAppCache } from './diagnostics.js';
+
+/** Ingen visning må vente længere end dette, før der vises indhold eller en fejl. */
+const VIEW_TIMEOUT_MS = 20000;
 
 const ROUTES = { idag, noter, morgen, mode, dagsafslutning, uge, arkiv };
 const DEFAULT_ROUTE = 'idag';
@@ -68,8 +74,9 @@ async function navigate() {
   const root = document.createElement('div');
   root.className = `view-${name}`;
 
+  window.__DAGSHUB_STEP__ = `visning ${name}`;
   try {
-    const result = await view.render(root, params);
+    const result = await withTimeout(view.render(root, params), VIEW_TIMEOUT_MS, `visning "${view.title}"`);
     // Hvis brugeren har skiftet view imens, kassér resultatet.
     if (token !== renderToken) {
       if (typeof result === 'function') result();
@@ -79,10 +86,26 @@ async function navigate() {
     main.replaceChildren(root);
     main.focus({ preventScroll: true });
     window.scrollTo(0, 0);
+    window.__DAGSHUB_STEP__ = 'klar';
   } catch (err) {
     console.error(err);
-    main.innerHTML = `<section class="card error"><h2>Noget gik galt</h2><p>${esc(err.message)}</p></section>`;
+    if (token !== renderToken) return;
+    window.__DAGSHUB_STEP__ = 'fejl';
+    showAppError(err.name === 'TimeoutError' ? `"${view.title}" kunne ikke indlæses` : 'Noget gik galt', err);
   }
+}
+
+/** Fejl uden for et view (opstart, timeout på en hel visning). */
+function showAppError(title, err) {
+  const main = $('#view');
+  main.innerHTML = `<div class="app-level">${errorPanel({
+    title,
+    lead: explainError(err),
+    detail: techDetail([err]),
+    retry: true,
+    reauth: auth.getStatus() === 'needs-login',
+    reset: true,
+  })}</div>`;
 }
 
 /** Viser "Offline"-mærke i headeren, når nettet forsvinder. */
@@ -133,6 +156,9 @@ function renderAccount() {
 
 function wireAccount() {
   document.addEventListener('click', async (e) => {
+    if (e.target.closest('.app-level [data-retry]')) { e.preventDefault(); navigate(); return; }
+    if (e.target.closest('.app-level [data-reset-app]')) { await resetAppCache(); return; }
+    if (e.target.closest('.app-level [data-reauth]')) { try { await auth.reauth(); } catch (err) { toast(err.message, { timeout: 6000 }); } return; }
     if (e.target.closest('#account [data-login]')) {
       if (!auth.isConfigured()) {
         toast('Login er ikke sat op endnu: config.js mangler et Client ID fra app-registreringen i Microsoft Entra.', { timeout: 7000 });
@@ -149,7 +175,7 @@ function wireAccount() {
 let backendStatus = null;
 function chooseBackend() {
   const status = auth.getStatus();
-  const signedIn = status === 'signed-in' || (status === 'needs-login' && getSync().shared);
+  const signedIn = status === 'signed-in' || (['needs-login', 'redirecting'].includes(status) && getSync().shared);
   const want = signedIn ? 'onedrive' : 'lokal';
   if (backendStatus === want) return false;
   backendStatus = want;
@@ -161,10 +187,19 @@ function chooseBackend() {
 
 async function boot() {
   if (window.__DAGSHUB_AUTH_BRIDGE__) return; // siden behandler et login-svar
+  window.__DAGSHUB_BOOTED__ = true; // til boot-guard.js
+  window.__DAGSHUB_STEP__ = 'login-opstart';
   watchOnlineStatus();
   registerServiceWorker();
   wireAccount();
-  await auth.initAuth();
+  try {
+    // initAuth har egne grænser pr. trin; samlet højst 17 s, så siden aldrig hænger her.
+    await withTimeout(auth.initAuth(), 17000, 'login-opstart (MSAL)');
+  } catch (err) {
+    console.error('[boot] initAuth:', err);
+    auth.markInitTimeout(err);
+    toast(`Login hos Microsoft svarer ikke: ${err.message}`, { timeout: 8000 });
+  }
   chooseBackend();
   renderAccount();
   auth.onAuthChange(() => {

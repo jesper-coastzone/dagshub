@@ -79,3 +79,37 @@ export function shortDayLabel(key) {
 
 /** Tom-tilstand */
 export const empty = (text) => `<p class="empty">${esc(text)}</p>`;
+
+/**
+ * Tydelig fejl med "Prøv igen" og en udfoldelig teknisk detalje, som brugeren
+ * kan tage et billede af. `detail` er ren tekst (escapes her).
+ *   errorPanel({ title, lead, detail, retry: true, reauth: false, reset: false })
+ * Knapper: [data-retry], [data-reauth], [data-reset-app] – håndteres af viewet/app.js.
+ */
+export function errorPanel({ title = 'Noget gik galt', lead = '', detail = '', retry = true, reauth = false, reset = false } = {}) {
+  return `
+    <section class="card error error-panel" role="alert">
+      <h2>${esc(title)}</h2>
+      ${lead ? `<p>${esc(lead)}</p>` : ''}
+      <div class="error-actions">
+        ${retry ? '<button class="btn btn-primary btn-lg" data-retry>Prøv igen</button>' : ''}
+        ${reauth ? '<button class="btn btn-ms btn-lg" data-reauth>Log ind igen</button>' : ''}
+      </div>
+      ${detail ? `<details class="tech-detail"><summary>Teknisk detalje</summary><pre>${esc(detail)}</pre>
+        ${reset ? '<button class="btn btn-ghost btn-small" data-reset-app>Nulstil app-cache og genindlæs</button>' : ''}</details>` : ''}
+    </section>`;
+}
+
+/** Dansk forklaring ud fra fejltypen (TimeoutError, NetworkError, AuthNeededError, GraphError …). */
+export function explainError(e) {
+  const name = e?.name || '';
+  const status = Number(e?.status) || 0;
+  if (name === 'TimeoutError') return 'Microsoft svarede ikke inden for 15 sekunder. Det skyldes oftest et ustabilt net eller en forsinkelse hos Microsoft.';
+  if (name === 'NetworkError') return 'Dagshub kunne ikke få forbindelse til Microsoft Graph. Tjek nettet, eller om et netværk/filter blokerer graph.microsoft.com.';
+  if (name === 'OfflineError') return 'Der er ingen forbindelse til internettet lige nu.';
+  if (name === 'AuthNeededError' || status === 401) return 'Login hos Microsoft skal fornyes.';
+  if (status === 403) return 'Microsoft afviste adgangen (403). Mangler app-registreringen tilladelsen Files.ReadWrite, eller er den ikke godkendt?';
+  if (status === 404) return 'Filen eller mappen findes ikke i OneDrive.';
+  if (status >= 500) return `Microsoft havde en fejl (HTTP ${status}). Prøv igen om lidt.`;
+  return 'Der opstod en uventet fejl.';
+}
