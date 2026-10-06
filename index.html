@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="da">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Dagshub</title>
+  <!-- Skal stå først: behandler svaret fra Microsoft-login (siden er selv redirect-URI). -->
+  <script src="js/auth-bridge.js"></script>
+  <meta name="description" content="Dagligt overblik: møder, noter, opfølgning og ugeplan.">
+
+  <!-- PWA -->
+  <link rel="manifest" href="manifest.webmanifest">
+  <meta name="theme-color" content="#0b3d5c" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#0d1b24" media="(prefers-color-scheme: dark)">
+  <meta name="color-scheme" content="light dark">
+  <link rel="icon" href="icons/icon-192.png" type="image/png">
+
+  <!-- iOS -->
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="Dagshub">
+
+  <link rel="stylesheet" href="css/styles.css">
+  <!-- Indhold til "I dag" (sætter window.HUB_DATA). Klassisk script, så det er
+       indlæst før app-modulet kører. Overskriv filen med rigtige data. -->
+  <script src="data/hub-data.js"></script>
+  <script type="module" src="js/app.js"></script>
+</head>
+<body>
+  <a class="skip-link" href="#view">Spring til indhold</a>
+
+  <header class="app-header">
+    <div class="brand">
+      <img src="icons/icon-192.png" alt="" width="32" height="32">
+      <span class="brand-name">Dagshub</span>
+      <span class="offline-badge" id="offline-badge" hidden>Offline</span>
+    </div>
+
+    <!-- Samme <nav> bruges som faner på desktop og bundmenu på telefon (se CSS). -->
+    <nav class="app-nav" aria-label="Hovedmenu">
+      <a href="#idag" data-route="idag">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 11 12 4l9 7"/><path d="M5 10v10h14V10"/><path d="M10 20v-6h4v6"/></svg>
+        <span>I dag</span>
+      </a>
+      <a href="#noter" data-route="noter">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20h4L19 9l-4-4L4 16z"/><path d="m13.5 6.5 4 4"/></svg>
+        <span>Noter</span>
+      </a>
+      <a href="#morgen" data-route="morgen">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>
+        <span>Morgen</span>
+      </a>
+      <a href="#mode" data-route="mode">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v4"/></svg>
+        <span>Møde</span>
+      </a>
+      <a href="#dagsafslutning" data-route="dagsafslutning">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>
+        <span class="label-long">Dagsafslutning</span><span class="label-short">Afslut</span>
+      </a>
+      <a href="#uge" data-route="uge">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/></svg>
+        <span>Uge</span>
+      </a>
+    </nav>
+
+    <div class="account" id="account"></div>
+  </header>
+
+  <main id="view" class="view" tabindex="-1" aria-live="polite">
+    <p class="loading">Indlæser …</p>
+  </main>
+
+  <div id="toasts" class="toasts" aria-live="polite"></div>
+
+  <noscript>Dagshub kræver JavaScript.</noscript>
+</body>
+</html>
