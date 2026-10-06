@@ -8,7 +8,7 @@
  * Så længe clientId er pladsholderen, kører appen som i dag på data/hub-data.js.
  */
 
-const CLIENT_ID = 'INDSÆT_CLIENT_ID';
+const CLIENT_ID = 'd35aa775-9a11-4c81-8450-7e8dc84eb1af';
 
 /** Den offentlige adresse (GitHub Pages). Skal stå præcis sådan – med afsluttende "/" – som redirect-URI i Entra. */
 export const PUBLIC_URL = 'https://jesper-coastzone.github.io/dagshub/';
@@ -25,7 +25,7 @@ export const CONFIG = {
   clientId: CLIENT_ID,
   // "organizations" = arbejds-/skolekonti i alle lejere. Kan skiftes til lejerens
   // eget domæne eller tenant-id, hvis app-registreringen er "single tenant".
-  authority: 'https://login.microsoftonline.com/organizations',
+  authority: 'https://login.microsoftonline.com/30086425-fdca-4171-9e6e-d4230bc4f0c6',
   redirectUri: ownUrl(),
   scopes: ['User.Read', 'Files.ReadWrite'],
 
